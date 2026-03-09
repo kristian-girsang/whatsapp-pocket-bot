@@ -25,7 +25,7 @@ test('rule parser can handle typo for common words', () => {
   const result = parseTransactionRuleBased('maksn 25rb');
   assert.equal(result.status, 'ok');
   assert.equal(result.data.type, 'expense');
-  assert.equal(result.data.category, 'makanan');
+  assert.equal(result.data.category, 'food');
   assert.equal(result.data.amount, 25000);
 });
 
@@ -35,7 +35,7 @@ test('parser can split merged typo+amount token', () => {
 
   const result = parseTransactionRuleBased('maksn25k');
   assert.equal(result.status, 'ok');
-  assert.equal(result.data.description, 'makan 25k');
+  assert.equal(result.data.description, 'makan');
   assert.equal(result.data.amount, 25000);
 });
 

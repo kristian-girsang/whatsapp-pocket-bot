@@ -112,7 +112,7 @@ async function initDatabase(dbClient) {
       description TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id),
-      FOREIGN KEY(account_id) REFERENCES accounts(id)
+      FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
     )
   `);
 

@@ -1,4 +1,4 @@
-const path = require('path');
+const path = require("path");
 
 function parseAllowedUsers(raw) {
   if (!raw) {
@@ -7,27 +7,28 @@ function parseAllowedUsers(raw) {
 
   return new Set(
     raw
-      .split(',')
+      .split(",")
       .map((v) => v.trim())
       .filter(Boolean)
-      .map((phone) => phone.replace(/\D/g, ''))
+      .map((phone) => phone.replace(/\D/g, "")),
   );
 }
 
 function getEnvConfig() {
   const port = Number(process.env.PORT || 3000);
-  const dbPath = process.env.DB_PATH || './data/expense-tracker.db';
-  const whatsappSessionPath = process.env.WHATSAPP_SESSION_PATH || './data/whatsapp-session';
+  const dbPath = process.env.DB_PATH || "./data/expense-tracker.db";
+  const whatsappSessionPath =
+    process.env.WHATSAPP_SESSION_PATH || "./data/whatsapp-session";
 
   return {
     port,
     dbPath: path.resolve(dbPath),
     whatsappSessionPath: path.resolve(whatsappSessionPath),
-    timezone: process.env.TZ || 'Asia/Jakarta',
-    groqApiKey: process.env.GROQ_API_KEY || '',
-    groqModel: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
+    timezone: process.env.TZ || "Asia/Jakarta",
+    groqApiKey: process.env.GROQ_API_KEY || "",
+    groqModel: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
     groqTimeoutMs: Number(process.env.GROQ_TIMEOUT_MS || 15000),
-    allowedUsers: parseAllowedUsers(process.env.ALLOWED_USERS || ''),
+    allowedUsers: parseAllowedUsers(process.env.ALLOWED_USERS || ""),
   };
 }
 

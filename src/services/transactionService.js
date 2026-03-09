@@ -114,6 +114,21 @@ async function getTransactionsByRange(db, userId, start, end) {
   );
 }
 
+async function listRecentTransactions(db, userId, limit = 10) {
+  const safeLimit = Number(limit) > 0 ? Math.min(Number(limit), 50) : 10;
+  return db.all(
+    `
+    SELECT t.id, t.type, t.category, t.amount, t.description, t.created_at, a.name AS account_name
+    FROM transactions t
+    LEFT JOIN accounts a ON a.id = t.account_id
+    WHERE t.user_id = ?
+    ORDER BY t.created_at DESC
+    LIMIT ?
+    `,
+    [userId, safeLimit]
+  );
+}
+
 function summarizeTransactions(transactions) {
   const summary = {
     expenseTotal: 0,
@@ -160,6 +175,7 @@ function pickTopTransactions(transactions, limit = 5) {
 module.exports = {
   createTransaction,
   getTransactionsByRange,
+  listRecentTransactions,
   summarizeTransactions,
   pickTopTransactions,
   validateTransactionInput,

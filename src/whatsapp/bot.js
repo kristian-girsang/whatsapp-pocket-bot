@@ -10,6 +10,7 @@ const { getOrCreateUserByPhone } = require('../services/userService');
 const {
   createTransaction,
   getTransactionsByRange,
+  listRecentTransactions,
   summarizeTransactions,
   pickTopTransactions,
   updateTransactionAmount,
@@ -24,6 +25,7 @@ const {
   getDefaultAccount,
   setDefaultAccount,
   getAccountByName,
+  deleteAccount,
 } = require('../services/accountService');
 const {
   monthKeyFromDate,
@@ -160,15 +162,16 @@ function buildTransactionConfirmation(transaction) {
 
 function buildHelpText() {
   return [
-    'Command inti:',
+    'Command utama:',
     '- update',
     '- hari ini | minggu ini | bulan ini',
-    '- dompet tambah/list/pakai <nama>',
+    '- transaksi list [hari ini|minggu ini|bulan ini]',
+    '- dompet tambah/list/pakai/hapus <nama>',
     '- budget <kategori> <nominal> | budget list',
     '- analisa | analytics',
     '- edit <id> <nominal> | hapus <id>',
     '',
-    'Contoh transaksi: "makan 25rb", "maksn25k", "dompet bca makan 10rb"',
+    'Contoh transaksi: "makan 25rb", "dompet bca makan 10rb"',
   ].join('\n');
 }
 
@@ -181,7 +184,7 @@ function extractWalletHint(text) {
   const noColon = String(text || '').match(/^(dompet|akun)\s+([a-z0-9_-]+)\s+(.+)$/i);
   if (noColon) {
     const actionWord = noColon[3].trim().toLowerCase();
-    if (['tambah', 'list', 'pakai'].includes(actionWord.split(' ')[0])) {
+    if (['tambah', 'list', 'pakai', 'hapus'].includes(actionWord.split(' ')[0])) {
       return { walletName: null, cleanText: text };
     }
 
@@ -212,6 +215,32 @@ async function handleReport(db, userId, mode) {
   const summary = summarizeTransactions(transactions);
 
   return buildSummaryReport(label, summary, transactions);
+}
+
+function buildTransactionListText(title, transactions) {
+  if (!transactions.length) {
+    return `${title}\n\nBelum ada transaksi.`;
+  }
+
+  const lines = transactions.map((trx) => {
+    const type = trx.type === 'income' ? 'IN' : 'OUT';
+    const account = trx.account_name || 'utama';
+    return `#${trx.id} [${type}] ${formatRupiah(Number(trx.amount))} | ${trx.category} | ${account} | ${trx.description}`;
+  });
+
+  return [title, '', ...lines].join('\n');
+}
+
+async function handleTransactionList(db, userId, mode) {
+  if (mode === 'all') {
+    const rows = await listRecentTransactions(db, userId, 20);
+    return buildTransactionListText('Daftar Transaksi Terbaru', rows);
+  }
+
+  const range = mode === 'today' ? getTodayRange() : mode === 'week' ? getCurrentWeekRange() : getCurrentMonthRange();
+  const label = mode === 'today' ? 'Daftar Transaksi Hari Ini' : mode === 'week' ? 'Daftar Transaksi Minggu Ini' : 'Daftar Transaksi Bulan Ini';
+  const rows = await getTransactionsByRange(db, userId, range.start, range.end);
+  return buildTransactionListText(label, rows.slice(0, 30));
 }
 
 async function handleAnalysis(config, db, userId) {
@@ -250,9 +279,23 @@ function parseWalletCommand(text) {
   const use = text.match(/^(dompet|akun)\s+pakai\s+([a-z0-9_-]+)$/i);
   if (use) return { type: 'use', name: use[2].toLowerCase() };
 
+  const remove = text.match(/^(dompet|akun)\s+hapus\s+([a-z0-9_-]+)$/i);
+  if (remove) return { type: 'delete', name: remove[2].toLowerCase() };
+
   const alternateAdd = text.match(/^tambah\s+dompet\s+([a-z0-9_-]+)$/i);
   if (alternateAdd) return { type: 'add', name: alternateAdd[1].toLowerCase() };
 
+  const alternateDelete = text.match(/^hapus\s+dompet\s+([a-z0-9_-]+)$/i);
+  if (alternateDelete) return { type: 'delete', name: alternateDelete[1].toLowerCase() };
+
+  return null;
+}
+
+function parseTransactionListCommand(text) {
+  if (/^transaksi\s+list$/i.test(text)) return { mode: 'all' };
+  if (/^transaksi\s+(hari ini)$/i.test(text)) return { mode: 'today' };
+  if (/^transaksi\s+(minggu ini)$/i.test(text)) return { mode: 'week' };
+  if (/^transaksi\s+(bulan ini)$/i.test(text)) return { mode: 'month' };
   return null;
 }
 
@@ -302,9 +345,18 @@ function createBot({ config, db }) {
   ensurePath(config.whatsappSessionPath);
 
   const authPath = path.resolve(config.whatsappSessionPath);
+  const puppeteerConfig = {
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+  };
+
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    puppeteerConfig.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+  }
+
   const client = new Client({
     authStrategy: new LocalAuth({ dataPath: authPath }),
-    puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] },
+    puppeteer: puppeteerConfig,
   });
 
   const scheduler = createReportScheduler({ client, db, config });
@@ -342,7 +394,7 @@ function createBot({ config, db }) {
     });
 
     if (!isWhitelisted(config, identity)) {
-      await message.reply('Nomor/ID kamu belum terdaftar di whitelist bot.');
+      await message.reply('Nomor atau ID kamu belum terdaftar di whitelist bot.');
       logger.warn('blocked_non_whitelist', { phone: identity.resolvedPhone, rawId: identity.rawId });
       return;
     }
@@ -366,7 +418,7 @@ function createBot({ config, db }) {
         }
 
         if (command === 'selesai' || command === 'tidak') {
-          await message.reply('Oke, update selesai.');
+          await message.reply('Baik, update selesai.');
           pendingUpdateFlow.delete(user.id);
           return;
         }
@@ -379,7 +431,7 @@ function createBot({ config, db }) {
 
       if (command === 'update') {
         const todayReport = await handleReport(db, user.id, 'today');
-        await message.reply(`${todayReport}\n\nButuh update lanjutan? Balas: "minggu ini", "bulan ini", atau "selesai".`);
+        await message.reply(`${todayReport}\n\nMau lanjut update? Balas: "minggu ini", "bulan ini", atau "selesai".`);
         pendingUpdateFlow.set(user.id, { step: 'scope', createdAt: Date.now() });
         return;
       }
@@ -399,6 +451,12 @@ function createBot({ config, db }) {
       if (command === 'bulan ini') {
         await message.reply(await handleReport(db, user.id, 'month'));
         logger.info('command_executed', { phone: identity.resolvedPhone, command });
+        return;
+      }
+
+      const transactionListCommand = parseTransactionListCommand(command);
+      if (transactionListCommand) {
+        await message.reply(await handleTransactionList(db, user.id, transactionListCommand.mode));
         return;
       }
 
@@ -460,6 +518,16 @@ function createBot({ config, db }) {
       if (walletCommand?.type === 'use') {
         const changed = await setDefaultAccount(db, user.id, walletCommand.name);
         await message.reply(changed.error ? changed.error : `Dompet default sekarang: ${changed.data.name}`);
+        return;
+      }
+
+      if (walletCommand?.type === 'delete') {
+        const removed = await deleteAccount(db, user.id, walletCommand.name);
+        await message.reply(
+          removed.error
+            ? removed.error
+            : `Dompet ${removed.data.name} dihapus. ${removed.data.removedTransactions} transaksi terkait ikut dihapus.`
+        );
         return;
       }
 
@@ -569,7 +637,7 @@ function createBot({ config, db }) {
       const budgetAlert = detectBudgetAlert(saveResult.data, monthBudgets, monthSummary.expenseByCategory);
 
       const confirmation = buildTransactionConfirmation(saveResult.data);
-      await message.reply(budgetAlert ? `${confirmation}\n\nPERINGATAN: ${budgetAlert}` : confirmation);
+      await message.reply(budgetAlert ? `${confirmation}\n\nPeringatan: ${budgetAlert}` : confirmation);
       logger.info('transaction_saved', { phone: identity.resolvedPhone, transactionId: saveResult.data.id, walletId: wallet.id });
     } catch (error) {
       logger.error('message_processing_failed', { error: error.message, phone: identity.resolvedPhone });

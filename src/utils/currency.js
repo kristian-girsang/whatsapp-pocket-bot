@@ -3,8 +3,12 @@ function parseAmountToken(token) {
     return null;
   }
 
-  const normalized = String(token).toLowerCase().replace(/\./g, '').replace(/,/g, '.').trim();
-  const match = normalized.match(/^(\d+(?:\.\d+)?)(jt|rb|k)?$/);
+  const normalized = String(token)
+    .toLowerCase()
+    .replace(/\./g, "")
+    .replace(/,/g, ".")
+    .trim();
+  const match = normalized.match(/^(\d+(?:\.\d+)?)(jt|juta|m|rb|ribu|k)?$/);
 
   if (!match) {
     return null;
@@ -15,12 +19,12 @@ function parseAmountToken(token) {
     return null;
   }
 
-  const suffix = match[2] || '';
+  const suffix = match[2] || "";
   let multiplier = 1;
 
-  if (suffix === 'k' || suffix === 'rb') {
+  if (suffix === "k" || suffix === "rb" || suffix === "ribu") {
     multiplier = 1000;
-  } else if (suffix === 'jt') {
+  } else if (suffix === "jt" || suffix === "juta" || suffix === "m") {
     multiplier = 1000000;
   }
 
@@ -29,7 +33,7 @@ function parseAmountToken(token) {
 
 function formatRupiah(amount) {
   const safeAmount = Number(amount) || 0;
-  return `Rp${safeAmount.toLocaleString('id-ID')}`;
+  return `Rp${safeAmount.toLocaleString("id-ID")}`;
 }
 
 module.exports = {

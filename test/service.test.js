@@ -5,11 +5,18 @@ const os = require('os');
 const path = require('path');
 const { createDb, initDatabase } = require('../src/db/database');
 const { getOrCreateUserByPhone } = require('../src/services/userService');
-const { getDefaultAccount, createAccount, setDefaultAccount } = require('../src/services/accountService');
+const {
+  getDefaultAccount,
+  createAccount,
+  setDefaultAccount,
+  getAccountByName,
+  deleteAccount,
+} = require('../src/services/accountService');
 const { setBudget, getBudgets } = require('../src/services/budgetService');
 const {
   createTransaction,
   getTransactionsByRange,
+  listRecentTransactions,
   summarizeTransactions,
 } = require('../src/services/transactionService');
 
@@ -118,6 +125,33 @@ test('budget upsert works for month', async () => {
   const budgets = await getBudgets(db, user.id, monthKey);
   assert.equal(budgets.length, 1);
   assert.equal(Number(budgets[0].limit_amount), 700000);
+
+  await db.close();
+});
+
+test('deleting wallet removes related transactions', async () => {
+  const db = createDb(makeTempDbPath());
+  await initDatabase(db);
+
+  const user = await getOrCreateUserByPhone(db, '6285555555555');
+  await getDefaultAccount(db, user.id);
+  await createAccount(db, user.id, 'bca');
+  const bca = await getAccountByName(db, user.id, 'bca');
+
+  await createTransaction(
+    db,
+    user.id,
+    { type: 'expense', category: 'makanan', amount: 10000, description: 'makan' },
+    bca.id
+  );
+
+  const removed = await deleteAccount(db, user.id, 'bca');
+  assert.equal(removed.error, undefined);
+  assert.equal(removed.data.name, 'bca');
+  assert.equal(removed.data.removedTransactions, 1);
+
+  const recent = await listRecentTransactions(db, user.id, 10);
+  assert.equal(recent.length, 0);
 
   await db.close();
 });

@@ -25,7 +25,7 @@ function formatAccountLines(transactions) {
 
   const entries = Object.entries(totals);
   if (!entries.length) {
-    return ['Belum ada data akun.'];
+    return ['Belum ada data dompet.'];
   }
 
   return entries.sort((a, b) => b[1] - a[1]).map(([account, total]) => `- ${account}: ${formatRupiah(total)}`);
@@ -33,7 +33,7 @@ function formatAccountLines(transactions) {
 
 function buildSummaryReport(label, summary, transactions = []) {
   const lines = [
-    `${label}`,
+    label,
     '',
     `Total Pengeluaran: ${formatRupiah(summary.expenseTotal)}`,
     `Total Pemasukan: ${formatRupiah(summary.incomeTotal)}`,
@@ -43,7 +43,7 @@ function buildSummaryReport(label, summary, transactions = []) {
     'Rincian Kategori:',
     ...formatCategoryLines(summary.categoryTotals),
     '',
-    'Ringkasan Per Akun:',
+    'Ringkasan Per Dompet:',
     ...formatAccountLines(transactions),
   ];
 
