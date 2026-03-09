@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { parseAmountToken } = require('../src/utils/currency');
-const { parseTransactionRuleBased } = require('../src/ai/ruleParser');
+const { parseTransactionRuleBased, normalizeMessageForParsing } = require('../src/ai/ruleParser');
 const { parseTransaction } = require('../src/ai/parseTransaction');
 
 test('parse amount shorthand', () => {
@@ -29,13 +29,23 @@ test('rule parser can handle typo for common words', () => {
   assert.equal(result.data.amount, 25000);
 });
 
+test('parser can split merged typo+amount token', () => {
+  const normalized = normalizeMessageForParsing('maksn25k');
+  assert.equal(normalized, 'makan 25k');
+
+  const result = parseTransactionRuleBased('maksn25k');
+  assert.equal(result.status, 'ok');
+  assert.equal(result.data.description, 'makan 25k');
+  assert.equal(result.data.amount, 25000);
+});
+
 test('ambiguous text triggers ai fallback path', async () => {
   await assert.rejects(
     () =>
       parseTransaction(
         {
           groqApiKey: '',
-          groqModel: 'llama-3.3-70b-versatile',
+          groqModel: 'llama-3.1-8b-instant',
           groqTimeoutMs: 2000,
         },
         'makan siang enak'

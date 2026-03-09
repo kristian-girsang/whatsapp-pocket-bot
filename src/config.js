@@ -25,7 +25,7 @@ function getEnvConfig() {
     whatsappSessionPath: path.resolve(whatsappSessionPath),
     timezone: process.env.TZ || 'Asia/Jakarta',
     groqApiKey: process.env.GROQ_API_KEY || '',
-    groqModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+    groqModel: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
     groqTimeoutMs: Number(process.env.GROQ_TIMEOUT_MS || 15000),
     allowedUsers: parseAllowedUsers(process.env.ALLOWED_USERS || ''),
   };

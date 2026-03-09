@@ -39,10 +39,6 @@ const TYPO_VOCAB = [
   'hadiah',
 ];
 
-function sanitizeText(text) {
-  return String(text || '').trim().toLowerCase();
-}
-
 function levenshtein(a, b) {
   const m = a.length;
   const n = b.length;
@@ -84,21 +80,31 @@ function maybeFixTypoToken(token) {
   return bestDistance <= 2 ? bestWord : token;
 }
 
-function normalizeTypos(text) {
-  return text
-    .split(/\s+/)
-    .map((token) => maybeFixTypoToken(token.replace(/[^a-z0-9]/g, '')))
+function normalizeMessageForParsing(text) {
+  const compact = String(text || '')
+    .toLowerCase()
+    .replace(/([a-z])([0-9])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!compact) {
+    return '';
+  }
+
+  return compact
+    .split(' ')
+    .map((token) => token.replace(/[^a-z0-9.]/g, ''))
+    .filter(Boolean)
+    .map((token) => maybeFixTypoToken(token))
     .join(' ')
     .trim();
 }
 
 function extractAmount(text) {
-  const compact = text.replace(/\s+/g, ' ');
-  const tokens = compact.split(' ');
+  const tokens = String(text || '').split(' ');
 
   for (let i = tokens.length - 1; i >= 0; i -= 1) {
-    const token = tokens[i].replace(/[!?,]/g, '');
-    const parsed = parseAmountToken(token);
+    const parsed = parseAmountToken(tokens[i]);
     if (parsed) {
       return { amount: parsed, tokenIndex: i };
     }
@@ -135,10 +141,9 @@ function inferCategory(text, type) {
 }
 
 function parseTransactionRuleBased(text) {
-  const normalized = sanitizeText(text);
-  const typoFixed = normalizeTypos(normalized);
+  const cleanText = normalizeMessageForParsing(text);
 
-  if (!typoFixed) {
+  if (!cleanText) {
     return {
       status: 'invalid',
       reason: 'Pesan kosong.',
@@ -146,7 +151,7 @@ function parseTransactionRuleBased(text) {
     };
   }
 
-  const extractedAmount = extractAmount(typoFixed);
+  const extractedAmount = extractAmount(cleanText);
   if (!extractedAmount) {
     return {
       status: 'ambiguous',
@@ -156,10 +161,9 @@ function parseTransactionRuleBased(text) {
   }
 
   const { amount } = extractedAmount;
-  const type = inferType(typoFixed);
-  const category = inferCategory(typoFixed, type);
-  const description = normalized;
-  const confidence = /\d/.test(typoFixed) ? 0.95 : 0.65;
+  const type = inferType(cleanText);
+  const category = inferCategory(cleanText, type);
+  const confidence = /\d/.test(cleanText) ? 0.95 : 0.65;
 
   return {
     status: 'ok',
@@ -168,13 +172,13 @@ function parseTransactionRuleBased(text) {
       type,
       category,
       amount,
-      description,
+      description: cleanText,
     },
-    normalizedText: typoFixed,
+    normalizedText: cleanText,
   };
 }
 
 module.exports = {
   parseTransactionRuleBased,
-  normalizeTypos,
+  normalizeMessageForParsing,
 };

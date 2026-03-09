@@ -16,7 +16,7 @@ const {
   deleteTransaction,
 } = require('../services/transactionService');
 const { buildSummaryReport } = require('../services/reportService');
-const { getTodayRange, getCurrentMonthRange } = require('../utils/time');
+const { getTodayRange, getCurrentWeekRange, getCurrentMonthRange } = require('../utils/time');
 const { formatRupiah, parseAmountToken } = require('../utils/currency');
 const {
   getAccounts,
@@ -50,6 +50,42 @@ function isLikelyPhone(value) {
   return /^62\d{8,13}$/.test(String(value || ''));
 }
 
+function levenshtein(a, b) {
+  const m = a.length;
+  const n = b.length;
+  const dp = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+
+  for (let i = 0; i <= m; i += 1) dp[i][0] = i;
+  for (let j = 0; j <= n; j += 1) dp[0][j] = j;
+
+  for (let i = 1; i <= m; i += 1) {
+    for (let j = 1; j <= n; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+    }
+  }
+
+  return dp[m][n];
+}
+
+function fuzzyWord(input, targets, maxDistance = 2) {
+  const word = String(input || '').trim().toLowerCase();
+  if (!word) return null;
+
+  let best = null;
+  let bestDistance = Infinity;
+
+  for (const target of targets) {
+    const dist = levenshtein(word, target);
+    if (dist < bestDistance) {
+      bestDistance = dist;
+      best = target;
+    }
+  }
+
+  return bestDistance <= maxDistance ? best : null;
+}
+
 async function resolveSenderIdentity(message) {
   const rawFrom = String(message.from || '').split('@')[0];
   const candidates = [normalizePhone(rawFrom), rawFrom].filter(Boolean);
@@ -79,19 +115,35 @@ function isWhitelisted(config, identity) {
     return false;
   }
 
-  if (config.allowedUsers.has(identity.resolvedPhone)) {
-    return true;
-  }
-
-  if (config.allowedUsers.has(identity.rawId)) {
-    return true;
-  }
-
+  if (config.allowedUsers.has(identity.resolvedPhone)) return true;
+  if (config.allowedUsers.has(identity.rawId)) return true;
   return identity.candidates.some((candidate) => config.allowedUsers.has(candidate));
 }
 
 function normalizeCommand(text) {
   return String(text || '').trim().toLowerCase();
+}
+
+function normalizeIntent(command) {
+  const directMap = {
+    'hari ini': 'hari ini',
+    'bulan ini': 'bulan ini',
+    'minggu ini': 'minggu ini',
+    bantuan: 'bantuan',
+    help: 'bantuan',
+    update: 'update',
+    analisa: 'analisa',
+    analytics: 'analytics',
+  };
+
+  if (directMap[command]) return directMap[command];
+
+  if (!command.includes(' ')) {
+    const fuzzy = fuzzyWord(command, ['bantuan', 'update', 'analisa', 'analytics']);
+    if (fuzzy) return fuzzy;
+  }
+
+  return command;
 }
 
 function buildTransactionConfirmation(transaction) {
@@ -108,54 +160,44 @@ function buildTransactionConfirmation(transaction) {
 
 function buildHelpText() {
   return [
-    'Command tersedia:',
-    '- hari ini',
-    '- bulan ini',
-    '- analisa',
-    '- analytics',
-    '- budget <kategori> <nominal>',
-    '- budget list',
-    '- dompet tambah <nama>',
-    '- dompet list',
-    '- dompet pakai <nama>',
-    '- kategori rule <keyword> <kategori>',
-    '- kategori rules',
-    '- jadwal harian <HH:MM>',
-    '- jadwal bulanan <tgl 1-28> <HH:MM>',
-    '- jadwal list',
-    '- jadwal hapus <id>',
-    '- edit <id_transaksi> <nominal_baru>',
-    '- hapus <id_transaksi>',
+    'Command inti:',
+    '- update',
+    '- hari ini | minggu ini | bulan ini',
+    '- dompet tambah/list/pakai <nama>',
+    '- budget <kategori> <nominal> | budget list',
+    '- analisa | analytics',
+    '- edit <id> <nominal> | hapus <id>',
     '',
-    'Transaksi biasa: "makan 25rb" atau "gaji 10jt"',
-    'Transaksi typo juga bisa: "maksn 25rb"',
-    'Transaksi per dompet: "dompet bca: makan 50rb"',
+    'Contoh transaksi: "makan 25rb", "maksn25k", "dompet bca makan 10rb"',
   ].join('\n');
 }
 
 function extractWalletHint(text) {
-  const match = String(text || '').match(/^(dompet|akun)\s+([a-z0-9_-]+)\s*:\s*(.+)$/i);
-  if (!match) {
-    return { walletName: null, cleanText: text };
+  const withColon = String(text || '').match(/^(dompet|akun)\s+([a-z0-9_-]+)\s*:\s*(.+)$/i);
+  if (withColon) {
+    return { walletName: withColon[2].toLowerCase(), cleanText: withColon[3] };
   }
 
-  return {
-    walletName: match[2].toLowerCase(),
-    cleanText: match[3],
-  };
+  const noColon = String(text || '').match(/^(dompet|akun)\s+([a-z0-9_-]+)\s+(.+)$/i);
+  if (noColon) {
+    const actionWord = noColon[3].trim().toLowerCase();
+    if (['tambah', 'list', 'pakai'].includes(actionWord.split(' ')[0])) {
+      return { walletName: null, cleanText: text };
+    }
+
+    return { walletName: noColon[2].toLowerCase(), cleanText: noColon[3] };
+  }
+
+  return { walletName: null, cleanText: text };
 }
 
 async function resolveWallet(db, userId, walletHint) {
   if (walletHint) {
     const found = await getAccountByName(db, userId, walletHint);
-    if (found) {
-      return found;
-    }
+    if (found) return found;
 
     const created = await createAccount(db, userId, walletHint);
-    if (created.error) {
-      throw new Error(created.error);
-    }
+    if (created.error) throw new Error(created.error);
     return created.data;
   }
 
@@ -163,8 +205,8 @@ async function resolveWallet(db, userId, walletHint) {
 }
 
 async function handleReport(db, userId, mode) {
-  const range = mode === 'today' ? getTodayRange() : getCurrentMonthRange();
-  const label = mode === 'today' ? 'Laporan Hari Ini' : 'Laporan Bulan Ini';
+  const range = mode === 'today' ? getTodayRange() : mode === 'week' ? getCurrentWeekRange() : getCurrentMonthRange();
+  const label = mode === 'today' ? 'Laporan Hari Ini' : mode === 'week' ? 'Laporan Minggu Ini' : 'Laporan Bulan Ini';
 
   const transactions = await getTransactionsByRange(db, userId, range.start, range.end);
   const summary = summarizeTransactions(transactions);
@@ -177,7 +219,6 @@ async function handleAnalysis(config, db, userId) {
   const transactions = await getTransactionsByRange(db, userId, range.start, range.end);
   const summary = summarizeTransactions(transactions);
   const topTransactions = pickTopTransactions(transactions, 5);
-
   return analyzeMonthlySummary(config, summary, topTransactions);
 }
 
@@ -186,7 +227,6 @@ async function handleAnalytics(db, userId) {
   const transactions = await getTransactionsByRange(db, userId, range.start, range.end);
   const summary = summarizeTransactions(transactions);
   const topTransactions = pickTopTransactions(transactions, 5);
-
   return buildAnalyticsReport(transactions, summary, topTransactions);
 }
 
@@ -197,11 +237,7 @@ function parseBudgetCommand(text) {
   const setMatch = text.match(/^budget\s+([a-z0-9_-]+)\s+([0-9.,a-z]+)$/i);
   if (!setMatch) return null;
 
-  return {
-    type: 'set',
-    category: setMatch[1].toLowerCase(),
-    amount: parseAmountToken(setMatch[2]),
-  };
+  return { type: 'set', category: setMatch[1].toLowerCase(), amount: parseAmountToken(setMatch[2]) };
 }
 
 function parseWalletCommand(text) {
@@ -213,6 +249,9 @@ function parseWalletCommand(text) {
 
   const use = text.match(/^(dompet|akun)\s+pakai\s+([a-z0-9_-]+)$/i);
   if (use) return { type: 'use', name: use[2].toLowerCase() };
+
+  const alternateAdd = text.match(/^tambah\s+dompet\s+([a-z0-9_-]+)$/i);
+  if (alternateAdd) return { type: 'add', name: alternateAdd[1].toLowerCase() };
 
   return null;
 }
@@ -246,14 +285,12 @@ function parseScheduleCommand(text) {
 function parseEditCommand(text) {
   const edit = text.match(/^edit\s+(\d+)\s+([0-9.,a-z]+)$/i);
   if (!edit) return null;
-
   return { id: Number(edit[1]), amount: parseAmountToken(edit[2]) };
 }
 
 function parseDeleteCommand(text) {
   const del = text.match(/^hapus\s+(\d+)$/i);
   if (!del) return null;
-
   return { id: Number(del[1]) };
 }
 
@@ -267,13 +304,11 @@ function createBot({ config, db }) {
   const authPath = path.resolve(config.whatsappSessionPath);
   const client = new Client({
     authStrategy: new LocalAuth({ dataPath: authPath }),
-    puppeteer: {
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    },
+    puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] },
   });
 
   const scheduler = createReportScheduler({ client, db, config });
+  const pendingUpdateFlow = new Map();
 
   client.on('qr', (qr) => {
     qrcode.generate(qr, { small: true });
@@ -291,7 +326,7 @@ function createBot({ config, db }) {
 
   client.on('message', async (message) => {
     const rawText = message.body || '';
-    const command = normalizeCommand(rawText);
+    const command = normalizeIntent(normalizeCommand(rawText));
 
     if (!rawText || !message.from || message.from.includes('@g.us')) {
       return;
@@ -316,35 +351,65 @@ function createBot({ config, db }) {
       const user = await getOrCreateUserByPhone(db, identity.resolvedPhone || identity.rawId);
       await getDefaultAccount(db, user.id);
 
+      const pending = pendingUpdateFlow.get(user.id);
+      if (pending?.step === 'scope') {
+        if (command === 'minggu ini') {
+          await message.reply(await handleReport(db, user.id, 'week'));
+          pendingUpdateFlow.delete(user.id);
+          return;
+        }
+
+        if (command === 'bulan ini') {
+          await message.reply(await handleReport(db, user.id, 'month'));
+          pendingUpdateFlow.delete(user.id);
+          return;
+        }
+
+        if (command === 'selesai' || command === 'tidak') {
+          await message.reply('Oke, update selesai.');
+          pendingUpdateFlow.delete(user.id);
+          return;
+        }
+      }
+
       if (command === 'help' || command === 'bantuan') {
         await message.reply(buildHelpText());
         return;
       }
 
+      if (command === 'update') {
+        const todayReport = await handleReport(db, user.id, 'today');
+        await message.reply(`${todayReport}\n\nButuh update lanjutan? Balas: "minggu ini", "bulan ini", atau "selesai".`);
+        pendingUpdateFlow.set(user.id, { step: 'scope', createdAt: Date.now() });
+        return;
+      }
+
       if (command === 'hari ini') {
-        const reportText = await handleReport(db, user.id, 'today');
-        await message.reply(reportText);
+        await message.reply(await handleReport(db, user.id, 'today'));
+        logger.info('command_executed', { phone: identity.resolvedPhone, command });
+        return;
+      }
+
+      if (command === 'minggu ini') {
+        await message.reply(await handleReport(db, user.id, 'week'));
         logger.info('command_executed', { phone: identity.resolvedPhone, command });
         return;
       }
 
       if (command === 'bulan ini') {
-        const reportText = await handleReport(db, user.id, 'month');
-        await message.reply(reportText);
+        await message.reply(await handleReport(db, user.id, 'month'));
         logger.info('command_executed', { phone: identity.resolvedPhone, command });
         return;
       }
 
       if (command === 'analisa') {
-        const analysisText = await handleAnalysis(config, db, user.id);
-        await message.reply(analysisText);
+        await message.reply(await handleAnalysis(config, db, user.id));
         logger.info('command_executed', { phone: identity.resolvedPhone, command });
         return;
       }
 
       if (command === 'analytics') {
-        const analyticsText = await handleAnalytics(db, user.id);
-        await message.reply(analyticsText);
+        await message.reply(await handleAnalytics(db, user.id));
         logger.info('command_executed', { phone: identity.resolvedPhone, command });
         return;
       }
@@ -411,9 +476,7 @@ function createBot({ config, db }) {
 
       if (categoryCommand?.type === 'rules') {
         const rules = await getCategoryRules(db, user.id);
-        const lines = rules.length
-          ? rules.map((r) => `- ${r.keyword} -> ${r.category}`)
-          : ['Belum ada rule kategori.'];
+        const lines = rules.length ? rules.map((r) => `- ${r.keyword} -> ${r.category}`) : ['Belum ada rule kategori.'];
         await message.reply(['Rule Kategori', '', ...lines].join('\n'));
         return;
       }
@@ -476,7 +539,7 @@ function createBot({ config, db }) {
       }
 
       if (!looksLikeTransaction(command)) {
-        await message.reply('Perintah tidak dikenali. Ketik "bantuan" untuk daftar command.');
+        await message.reply('Perintah tidak dikenali. Ketik "bantuan" atau "update".');
         return;
       }
 
@@ -510,7 +573,7 @@ function createBot({ config, db }) {
       logger.info('transaction_saved', { phone: identity.resolvedPhone, transactionId: saveResult.data.id, walletId: wallet.id });
     } catch (error) {
       logger.error('message_processing_failed', { error: error.message, phone: identity.resolvedPhone });
-      await message.reply('Pesan belum bisa diproses. Ketik "bantuan" untuk daftar command.');
+      await message.reply('Pesan belum bisa diproses. Ketik "bantuan" atau "update".');
     }
   });
 

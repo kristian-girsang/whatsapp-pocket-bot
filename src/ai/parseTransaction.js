@@ -1,5 +1,5 @@
 const { chatCompletion } = require('./groqClient');
-const { parseTransactionRuleBased } = require('./ruleParser');
+const { parseTransactionRuleBased, normalizeMessageForParsing } = require('./ruleParser');
 const { validateTransactionInput } = require('../services/transactionService');
 
 function extractJsonObject(text) {
@@ -31,13 +31,14 @@ function normalizeType(rawType) {
 
 async function parseViaGroq(config, messageText) {
   const systemPrompt = [
-    'You are a financial transaction parser for Indonesian chat messages.',
-    'User text may contain typos, slang, abbreviations, and inconsistent spelling.',
-    'Infer the intended meaning as accurately as possible.',
+    'You are a high-accuracy financial transaction parser for Indonesian chat.',
+    'User text may contain typos, slang, abbreviations, and merged words like maksn25k.',
+    'Fix typos in output fields silently.',
     'Extract one transaction from the user message.',
     'Return JSON only with fields: type, category, amount, description.',
     'type must be exactly expense or income.',
     'amount must be integer in Indonesian Rupiah.',
+    'description must be typo-corrected and concise.',
   ].join(' ');
 
   const data = await chatCompletion(
@@ -76,7 +77,7 @@ async function parseTransaction(config, messageText) {
     type: normalizeType(llmData.type),
     category: String(llmData.category || '').trim().toLowerCase(),
     amount: Number(llmData.amount),
-    description: String(llmData.description || '').trim() || String(messageText || '').trim(),
+    description: normalizeMessageForParsing(String(llmData.description || '').trim() || String(messageText || '').trim()),
   };
 
   const validationError = validateTransactionInput(normalized);

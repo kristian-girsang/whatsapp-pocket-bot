@@ -4,7 +4,7 @@ Bot WhatsApp lokal untuk pencatatan keuangan dengan parser hybrid (rule + Groq),
 
 ## Fitur
 
-- Input transaksi natural language, termasuk typo umum: `makan 25rb`, `maksn 25rb`, `gaji 10jt`
+- Input transaksi natural language, termasuk typo umum: `makan 25rb`, `maksn25k`, `gaji 10jt`
 - Multi-user whitelist (`ALLOWED_USERS`)
 - Multi dompet per user (`dompet tambah`, `dompet pakai`)
 - Budget tracking bulanan per kategori (`budget`)
@@ -29,6 +29,7 @@ cp .env.example .env
 Contoh:
 
 ```env
+GROQ_MODEL=llama-3.1-8b-instant
 ALLOWED_USERS=6281262142952,133646564499629
 ```
 
@@ -43,37 +44,24 @@ npm run dev
 
 4. Scan QR WhatsApp di terminal saat startup pertama.
 
+## Command cepat
+
+- `update` -> kirim update hari ini lalu follow-up (`minggu ini` / `bulan ini` / `selesai`)
+- `bantuan` -> ringkas daftar command
+- `dompet tambah <nama>` / `dompet list` / `dompet pakai <nama>`
+- `budget <kategori> <nominal>` / `budget list`
+- `analisa` / `analytics`
+- `edit <id> <nominal>` / `hapus <id>`
+
+Contoh transaksi:
+- `dompet bca makan 10rb`
+- `dompet bca: maksn25k`
+
 ## Docker
 
 ```bash
 docker compose up --build
 ```
-
-Data DB dan sesi WhatsApp disimpan di `./data`.
-
-## Command utama
-
-- `bantuan`
-- `hari ini`
-- `bulan ini`
-- `analisa`
-- `analytics`
-- `budget <kategori> <nominal>`
-- `budget list`
-- `dompet tambah <nama>`
-- `dompet list`
-- `dompet pakai <nama>`
-- `kategori rule <keyword> <kategori>`
-- `kategori rules`
-- `jadwal harian <HH:MM>`
-- `jadwal bulanan <tgl 1-28> <HH:MM>`
-- `jadwal list`
-- `jadwal hapus <id>`
-- `edit <id_transaksi> <nominal_baru>`
-- `hapus <id_transaksi>`
-
-Tip multi-dompet transaksi cepat:
-- `dompet bca: makan 50rb`
 
 ## Test
 
