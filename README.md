@@ -1,12 +1,12 @@
 # WhatsApp AI Expense Tracker
 
-Bot WhatsApp lokal untuk pencatatan keuangan dengan parser hybrid (rule + Groq), SQLite, multi akun, budget tracking, analytics, dan scheduled report.
+Bot WhatsApp lokal untuk pencatatan keuangan dengan parser hybrid (rule + Groq), SQLite, multi dompet, budget tracking, analytics, dan scheduled report.
 
 ## Fitur
 
-- Input transaksi natural language: `makan 25rb`, `gaji 10jt`
+- Input transaksi natural language, termasuk typo umum: `makan 25rb`, `maksn 25rb`, `gaji 10jt`
 - Multi-user whitelist (`ALLOWED_USERS`)
-- Multi account per user (`akun tambah`, `akun pakai`)
+- Multi dompet per user (`dompet tambah`, `dompet pakai`)
 - Budget tracking bulanan per kategori (`budget`)
 - Analytics bulanan (`analytics`) dan insight AI (`analisa`)
 - Scheduled report (`jadwal harian`, `jadwal bulanan`)
@@ -24,7 +24,15 @@ cp .env.example .env
 
 2. Isi `.env` minimal:
 - `GROQ_API_KEY`
-- `ALLOWED_USERS`
+- `ALLOWED_USERS` (pisahkan dengan koma)
+
+Contoh:
+
+```env
+ALLOWED_USERS=6281262142952,133646564499629
+```
+
+Catatan: pada beberapa akun WhatsApp, pengirim bisa terbaca sebagai LID (angka panjang) seperti `133...`. Karena itu whitelist mendukung nomor `62...` maupun LID.
 
 3. Jalankan lokal:
 
@@ -52,9 +60,9 @@ Data DB dan sesi WhatsApp disimpan di `./data`.
 - `analytics`
 - `budget <kategori> <nominal>`
 - `budget list`
-- `akun tambah <nama>`
-- `akun list`
-- `akun pakai <nama>`
+- `dompet tambah <nama>`
+- `dompet list`
+- `dompet pakai <nama>`
 - `kategori rule <keyword> <kategori>`
 - `kategori rules`
 - `jadwal harian <HH:MM>`
@@ -64,8 +72,8 @@ Data DB dan sesi WhatsApp disimpan di `./data`.
 - `edit <id_transaksi> <nominal_baru>`
 - `hapus <id_transaksi>`
 
-Tip multi-account transaksi cepat:
-- `akun bca: makan 50rb`
+Tip multi-dompet transaksi cepat:
+- `dompet bca: makan 50rb`
 
 ## Test
 

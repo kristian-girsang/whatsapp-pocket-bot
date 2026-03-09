@@ -22,9 +22,18 @@ function extractJsonObject(text) {
   }
 }
 
+function normalizeType(rawType) {
+  const value = String(rawType || '').toLowerCase().trim();
+  if (['expense', 'pengeluaran', 'keluar', 'spend'].includes(value)) return 'expense';
+  if (['income', 'pemasukan', 'masuk', 'salary'].includes(value)) return 'income';
+  return value;
+}
+
 async function parseViaGroq(config, messageText) {
   const systemPrompt = [
-    'You are a financial transaction parser.',
+    'You are a financial transaction parser for Indonesian chat messages.',
+    'User text may contain typos, slang, abbreviations, and inconsistent spelling.',
+    'Infer the intended meaning as accurately as possible.',
     'Extract one transaction from the user message.',
     'Return JSON only with fields: type, category, amount, description.',
     'type must be exactly expense or income.',
@@ -52,7 +61,7 @@ async function parseViaGroq(config, messageText) {
 async function parseTransaction(config, messageText) {
   const ruleResult = parseTransactionRuleBased(messageText);
 
-  if (ruleResult.status === 'ok' && ruleResult.confidence >= 0.85) {
+  if (ruleResult.status === 'ok' && ruleResult.confidence >= 0.8) {
     const validationError = validateTransactionInput(ruleResult.data);
     if (!validationError) {
       return {
@@ -64,10 +73,10 @@ async function parseTransaction(config, messageText) {
 
   const llmData = await parseViaGroq(config, messageText);
   const normalized = {
-    type: String(llmData.type || '').toLowerCase(),
+    type: normalizeType(llmData.type),
     category: String(llmData.category || '').trim().toLowerCase(),
     amount: Number(llmData.amount),
-    description: String(llmData.description || '').trim(),
+    description: String(llmData.description || '').trim() || String(messageText || '').trim(),
   };
 
   const validationError = validateTransactionInput(normalized);

@@ -3,7 +3,7 @@ const path = require('path');
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const logger = require('../utils/logger');
-const { phoneFromWhatsAppId } = require('../utils/phone');
+const { normalizePhone } = require('../utils/phone');
 const { parseTransaction } = require('../ai/parseTransaction');
 const { analyzeMonthlySummary } = require('../ai/analyzeReport');
 const { getOrCreateUserByPhone } = require('../services/userService');
@@ -46,12 +46,48 @@ function ensurePath(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
 }
 
-function isWhitelisted(config, phone) {
+function isLikelyPhone(value) {
+  return /^62\d{8,13}$/.test(String(value || ''));
+}
+
+async function resolveSenderIdentity(message) {
+  const rawFrom = String(message.from || '').split('@')[0];
+  const candidates = [normalizePhone(rawFrom), rawFrom].filter(Boolean);
+
+  try {
+    const contact = await message.getContact();
+    const contactNumber = normalizePhone(contact?.number || '');
+    const contactUser = normalizePhone(contact?.id?.user || '');
+    if (contactNumber) candidates.unshift(contactNumber);
+    if (contactUser) candidates.unshift(contactUser);
+  } catch (_error) {
+    // ignore contact lookup failure
+  }
+
+  const preferredPhone = candidates.find((x) => isLikelyPhone(x));
+  const resolvedPhone = preferredPhone || normalizePhone(rawFrom);
+
+  return {
+    resolvedPhone,
+    rawId: rawFrom,
+    candidates: [...new Set(candidates)],
+  };
+}
+
+function isWhitelisted(config, identity) {
   if (config.allowedUsers.size === 0) {
     return false;
   }
 
-  return config.allowedUsers.has(phone);
+  if (config.allowedUsers.has(identity.resolvedPhone)) {
+    return true;
+  }
+
+  if (config.allowedUsers.has(identity.rawId)) {
+    return true;
+  }
+
+  return identity.candidates.some((candidate) => config.allowedUsers.has(candidate));
 }
 
 function normalizeCommand(text) {
@@ -64,7 +100,7 @@ function buildTransactionConfirmation(transaction) {
     'Transaksi tersimpan.',
     `${typeLabel}: ${formatRupiah(transaction.amount)}`,
     `Kategori: ${transaction.category}`,
-    `Akun: ${transaction.account_name || 'utama'}`,
+    `Dompet: ${transaction.account_name || 'utama'}`,
     `Deskripsi: ${transaction.description}`,
     `ID: ${transaction.id}`,
   ].join('\n');
@@ -79,9 +115,9 @@ function buildHelpText() {
     '- analytics',
     '- budget <kategori> <nominal>',
     '- budget list',
-    '- akun tambah <nama>',
-    '- akun list',
-    '- akun pakai <nama>',
+    '- dompet tambah <nama>',
+    '- dompet list',
+    '- dompet pakai <nama>',
     '- kategori rule <keyword> <kategori>',
     '- kategori rules',
     '- jadwal harian <HH:MM>',
@@ -92,29 +128,31 @@ function buildHelpText() {
     '- hapus <id_transaksi>',
     '',
     'Transaksi biasa: "makan 25rb" atau "gaji 10jt"',
+    'Transaksi typo juga bisa: "maksn 25rb"',
+    'Transaksi per dompet: "dompet bca: makan 50rb"',
   ].join('\n');
 }
 
-function extractAccountHint(text) {
-  const match = String(text || '').match(/^akun\s+([a-z0-9_-]+)\s*:\s*(.+)$/i);
+function extractWalletHint(text) {
+  const match = String(text || '').match(/^(dompet|akun)\s+([a-z0-9_-]+)\s*:\s*(.+)$/i);
   if (!match) {
-    return { accountName: null, cleanText: text };
+    return { walletName: null, cleanText: text };
   }
 
   return {
-    accountName: match[1].toLowerCase(),
-    cleanText: match[2],
+    walletName: match[2].toLowerCase(),
+    cleanText: match[3],
   };
 }
 
-async function resolveAccount(db, userId, accountHint) {
-  if (accountHint) {
-    const found = await getAccountByName(db, userId, accountHint);
+async function resolveWallet(db, userId, walletHint) {
+  if (walletHint) {
+    const found = await getAccountByName(db, userId, walletHint);
     if (found) {
       return found;
     }
 
-    const created = await createAccount(db, userId, accountHint);
+    const created = await createAccount(db, userId, walletHint);
     if (created.error) {
       throw new Error(created.error);
     }
@@ -166,15 +204,15 @@ function parseBudgetCommand(text) {
   };
 }
 
-function parseAccountCommand(text) {
-  const add = text.match(/^akun\s+tambah\s+([a-z0-9_-]+)$/i);
-  if (add) return { type: 'add', name: add[1].toLowerCase() };
+function parseWalletCommand(text) {
+  const add = text.match(/^(dompet|akun)\s+tambah\s+([a-z0-9_-]+)$/i);
+  if (add) return { type: 'add', name: add[2].toLowerCase() };
 
-  const list = text.match(/^akun\s+list$/i);
+  const list = text.match(/^(dompet|akun)\s+list$/i);
   if (list) return { type: 'list' };
 
-  const use = text.match(/^akun\s+pakai\s+([a-z0-9_-]+)$/i);
-  if (use) return { type: 'use', name: use[1].toLowerCase() };
+  const use = text.match(/^(dompet|akun)\s+pakai\s+([a-z0-9_-]+)$/i);
+  if (use) return { type: 'use', name: use[2].toLowerCase() };
 
   return null;
 }
@@ -219,6 +257,10 @@ function parseDeleteCommand(text) {
   return { id: Number(del[1]) };
 }
 
+function looksLikeTransaction(text) {
+  return /\d/.test(text) || /\b(rb|jt|k)\b/.test(text);
+}
+
 function createBot({ config, db }) {
   ensurePath(config.whatsappSessionPath);
 
@@ -255,17 +297,23 @@ function createBot({ config, db }) {
       return;
     }
 
-    const phone = phoneFromWhatsAppId(message.from);
-    logger.info('incoming_message', { phone, text: rawText });
+    const identity = await resolveSenderIdentity(message);
 
-    if (!isWhitelisted(config, phone)) {
-      await message.reply('Nomor kamu belum terdaftar di whitelist bot.');
-      logger.warn('blocked_non_whitelist', { phone });
+    logger.info('incoming_message', {
+      phone: identity.resolvedPhone,
+      raw_id: identity.rawId,
+      candidates: identity.candidates,
+      text: rawText,
+    });
+
+    if (!isWhitelisted(config, identity)) {
+      await message.reply('Nomor/ID kamu belum terdaftar di whitelist bot.');
+      logger.warn('blocked_non_whitelist', { phone: identity.resolvedPhone, rawId: identity.rawId });
       return;
     }
 
     try {
-      const user = await getOrCreateUserByPhone(db, phone);
+      const user = await getOrCreateUserByPhone(db, identity.resolvedPhone || identity.rawId);
       await getDefaultAccount(db, user.id);
 
       if (command === 'help' || command === 'bantuan') {
@@ -276,28 +324,28 @@ function createBot({ config, db }) {
       if (command === 'hari ini') {
         const reportText = await handleReport(db, user.id, 'today');
         await message.reply(reportText);
-        logger.info('command_executed', { phone, command });
+        logger.info('command_executed', { phone: identity.resolvedPhone, command });
         return;
       }
 
       if (command === 'bulan ini') {
         const reportText = await handleReport(db, user.id, 'month');
         await message.reply(reportText);
-        logger.info('command_executed', { phone, command });
+        logger.info('command_executed', { phone: identity.resolvedPhone, command });
         return;
       }
 
       if (command === 'analisa') {
         const analysisText = await handleAnalysis(config, db, user.id);
         await message.reply(analysisText);
-        logger.info('command_executed', { phone, command });
+        logger.info('command_executed', { phone: identity.resolvedPhone, command });
         return;
       }
 
       if (command === 'analytics') {
         const analyticsText = await handleAnalytics(db, user.id);
         await message.reply(analyticsText);
-        logger.info('command_executed', { phone, command });
+        logger.info('command_executed', { phone: identity.resolvedPhone, command });
         return;
       }
 
@@ -328,25 +376,25 @@ function createBot({ config, db }) {
         return;
       }
 
-      const accountCommand = parseAccountCommand(command);
-      if (accountCommand?.type === 'add') {
-        const created = await createAccount(db, user.id, accountCommand.name);
-        await message.reply(created.error ? created.error : `Akun ${created.data.name} berhasil ditambahkan.`);
+      const walletCommand = parseWalletCommand(command);
+      if (walletCommand?.type === 'add') {
+        const created = await createAccount(db, user.id, walletCommand.name);
+        await message.reply(created.error ? created.error : `Dompet ${created.data.name} berhasil ditambahkan.`);
         return;
       }
 
-      if (accountCommand?.type === 'list') {
+      if (walletCommand?.type === 'list') {
         const accounts = await getAccounts(db, user.id);
         const lines = accounts.length
           ? accounts.map((a) => `- ${a.name}${a.is_default ? ' (default)' : ''}`)
-          : ['Belum ada akun.'];
-        await message.reply(['Daftar Akun', '', ...lines].join('\n'));
+          : ['Belum ada dompet.'];
+        await message.reply(['Daftar Dompet', '', ...lines].join('\n'));
         return;
       }
 
-      if (accountCommand?.type === 'use') {
-        const changed = await setDefaultAccount(db, user.id, accountCommand.name);
-        await message.reply(changed.error ? changed.error : `Akun default sekarang: ${changed.data.name}`);
+      if (walletCommand?.type === 'use') {
+        const changed = await setDefaultAccount(db, user.id, walletCommand.name);
+        await message.reply(changed.error ? changed.error : `Dompet default sekarang: ${changed.data.name}`);
         return;
       }
 
@@ -427,22 +475,27 @@ function createBot({ config, db }) {
         return;
       }
 
-      const accountCtx = extractAccountHint(rawText);
-      const account = await resolveAccount(db, user.id, accountCtx.accountName);
+      if (!looksLikeTransaction(command)) {
+        await message.reply('Perintah tidak dikenali. Ketik "bantuan" untuk daftar command.');
+        return;
+      }
 
-      const parsed = await parseTransaction(config, accountCtx.cleanText);
+      const walletCtx = extractWalletHint(rawText);
+      const wallet = await resolveWallet(db, user.id, walletCtx.walletName);
+
+      const parsed = await parseTransaction(config, walletCtx.cleanText);
       const categoryRules = await getCategoryRules(db, user.id);
       const forcedCategory = applyCategoryRule(parsed.transaction.description, categoryRules);
       if (forcedCategory) {
         parsed.transaction.category = forcedCategory;
       }
 
-      logger.info('transaction_parsed', { phone, source: parsed.source, account: account.name });
+      logger.info('transaction_parsed', { phone: identity.resolvedPhone, source: parsed.source, wallet: wallet.name });
 
-      const saveResult = await createTransaction(db, user.id, parsed.transaction, account.id);
+      const saveResult = await createTransaction(db, user.id, parsed.transaction, wallet.id);
       if (saveResult.error) {
         await message.reply(`Transaksi gagal disimpan: ${saveResult.error}`);
-        logger.warn('transaction_save_failed', { phone, reason: saveResult.error });
+        logger.warn('transaction_save_failed', { phone: identity.resolvedPhone, reason: saveResult.error });
         return;
       }
 
@@ -453,10 +506,10 @@ function createBot({ config, db }) {
       const budgetAlert = detectBudgetAlert(saveResult.data, monthBudgets, monthSummary.expenseByCategory);
 
       const confirmation = buildTransactionConfirmation(saveResult.data);
-      await message.reply(budgetAlert ? `${confirmation}\n\n⚠️ ${budgetAlert}` : confirmation);
-      logger.info('transaction_saved', { phone, transactionId: saveResult.data.id, accountId: account.id });
+      await message.reply(budgetAlert ? `${confirmation}\n\nPERINGATAN: ${budgetAlert}` : confirmation);
+      logger.info('transaction_saved', { phone: identity.resolvedPhone, transactionId: saveResult.data.id, walletId: wallet.id });
     } catch (error) {
-      logger.error('message_processing_failed', { error: error.message, phone });
+      logger.error('message_processing_failed', { error: error.message, phone: identity.resolvedPhone });
       await message.reply('Pesan belum bisa diproses. Ketik "bantuan" untuk daftar command.');
     }
   });

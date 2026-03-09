@@ -21,6 +21,14 @@ test('rule parser classifies income and expense', () => {
   assert.equal(expense.data.amount, 25000);
 });
 
+test('rule parser can handle typo for common words', () => {
+  const result = parseTransactionRuleBased('maksn 25rb');
+  assert.equal(result.status, 'ok');
+  assert.equal(result.data.type, 'expense');
+  assert.equal(result.data.category, 'makanan');
+  assert.equal(result.data.amount, 25000);
+});
+
 test('ambiguous text triggers ai fallback path', async () => {
   await assert.rejects(
     () =>
