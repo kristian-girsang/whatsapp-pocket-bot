@@ -1,0 +1,37 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { parseAmountToken } = require('../src/utils/currency');
+const { parseTransactionRuleBased } = require('../src/ai/ruleParser');
+const { parseTransaction } = require('../src/ai/parseTransaction');
+
+test('parse amount shorthand', () => {
+  assert.equal(parseAmountToken('25k'), 25000);
+  assert.equal(parseAmountToken('25rb'), 25000);
+  assert.equal(parseAmountToken('10jt'), 10000000);
+});
+
+test('rule parser classifies income and expense', () => {
+  const income = parseTransactionRuleBased('gaji 10jt');
+  assert.equal(income.status, 'ok');
+  assert.equal(income.data.type, 'income');
+
+  const expense = parseTransactionRuleBased('makan siang 25rb');
+  assert.equal(expense.status, 'ok');
+  assert.equal(expense.data.type, 'expense');
+  assert.equal(expense.data.amount, 25000);
+});
+
+test('ambiguous text triggers ai fallback path', async () => {
+  await assert.rejects(
+    () =>
+      parseTransaction(
+        {
+          groqApiKey: '',
+          groqModel: 'llama-3.3-70b-versatile',
+          groqTimeoutMs: 2000,
+        },
+        'makan siang enak'
+      ),
+    /GROQ_API_KEY belum diatur/
+  );
+});
