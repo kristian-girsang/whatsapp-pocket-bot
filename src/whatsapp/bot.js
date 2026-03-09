@@ -43,6 +43,7 @@ const {
 } = require('../services/scheduleService');
 const { createReportScheduler } = require('../scheduler/reportScheduler');
 const { buildAnalyticsReport } = require('../services/analyticsService');
+const { inferCommandFromText } = require('../ai/inferCommand');
 
 function ensurePath(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
@@ -337,6 +338,37 @@ function parseDeleteCommand(text) {
   return { id: Number(del[1]) };
 }
 
+function isRecognizedCommand(text) {
+  if (!text) return false;
+
+  const direct = [
+    'bantuan',
+    'help',
+    'update',
+    'hari ini',
+    'minggu ini',
+    'bulan ini',
+    'analisa',
+    'analytics',
+    'transaksi list',
+    'transaksi hari ini',
+    'transaksi minggu ini',
+    'transaksi bulan ini',
+    'budget list',
+    'jadwal list',
+  ];
+
+  if (direct.includes(text)) return true;
+  if (parseBudgetCommand(text)) return true;
+  if (parseWalletCommand(text)) return true;
+  if (parseCategoryCommand(text)) return true;
+  if (parseScheduleCommand(text)) return true;
+  if (parseEditCommand(text)) return true;
+  if (parseDeleteCommand(text)) return true;
+
+  return false;
+}
+
 function looksLikeTransaction(text) {
   return /\d/.test(text) || /\b(rb|jt|k)\b/.test(text);
 }
@@ -378,7 +410,7 @@ function createBot({ config, db }) {
 
   client.on('message', async (message) => {
     const rawText = message.body || '';
-    const command = normalizeIntent(normalizeCommand(rawText));
+    let command = normalizeIntent(normalizeCommand(rawText));
 
     if (!rawText || !message.from || message.from.includes('@g.us')) {
       return;
@@ -402,6 +434,14 @@ function createBot({ config, db }) {
     try {
       const user = await getOrCreateUserByPhone(db, identity.resolvedPhone || identity.rawId);
       await getDefaultAccount(db, user.id);
+
+      if (!isRecognizedCommand(command) && !looksLikeTransaction(command)) {
+        const inferred = await inferCommandFromText(config, rawText);
+        if (inferred) {
+          command = normalizeIntent(normalizeCommand(inferred));
+          logger.info('command_inferred', { rawText, inferredCommand: command, userId: user.id });
+        }
+      }
 
       const pending = pendingUpdateFlow.get(user.id);
       if (pending?.step === 'scope') {

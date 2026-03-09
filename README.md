@@ -4,7 +4,7 @@ Bot WhatsApp lokal untuk pencatatan keuangan dengan parser hybrid (rule + Groq),
 
 ## Fitur
 
-- Input transaksi natural language, termasuk typo umum: `makan 25rb`, `maksn25k`, `gaji 10jt`
+- Input transaksi natural language (bot juga menerima instruksi bebas), termasuk typo umum: `makan 25rb`, `maksn25k`, `gaji 10jt`
 - Multi-user whitelist (`ALLOWED_USERS`)
 - Multi dompet per user (termasuk hapus dompet)
 - Budget tracking bulanan per kategori (`budget`)
@@ -24,13 +24,14 @@ cp .env.example .env
 ```
 
 2. Isi `.env` minimal:
-- `GROQ_API_KEY`
+
+- `GEMINI_API_KEY`
 - `ALLOWED_USERS` (pisahkan dengan koma)
 
 Contoh:
 
 ```env
-GROQ_MODEL=llama-3.1-8b-instant
+GEMINI_MODEL=gemini-1.5-flash
 ALLOWED_USERS=6281262142952,133646564499629
 ```
 
@@ -46,7 +47,7 @@ npm run dev
 - `update` -> kirim update hari ini lalu follow-up (`minggu ini` / `bulan ini` / `selesai`)
 - `bantuan`
 - `hari ini`, `minggu ini`, `bulan ini`
-- `transaksi list`, `transaksi hari ini`, `transaksi minggu ini`, `transaksi bulan ini`
+- `list transaksi`, `transaksi hari ini`, `transaksi minggu ini`, `transaksi bulan ini`
 - `dompet tambah <nama>`, `dompet list`, `dompet pakai <nama>`, `dompet hapus <nama>`
 - `budget <kategori> <nominal>`, `budget list`
 - `analisa`, `analytics`

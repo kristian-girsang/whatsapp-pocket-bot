@@ -1,4 +1,4 @@
-const { chatCompletion } = require('./groqClient');
+const { generateText } = require('./geminiClient');
 const { formatRupiah } = require('../utils/currency');
 
 function buildFallback(summary, topTransactions) {
@@ -29,7 +29,7 @@ async function analyzeMonthlySummary(config, summary, topTransactions) {
   };
 
   try {
-    const data = await chatCompletion(
+    const content = await generateText(
       config,
       [
         {
@@ -44,12 +44,11 @@ async function analyzeMonthlySummary(config, summary, topTransactions) {
       { temperature: 0.2 }
     );
 
-    const content = data?.choices?.[0]?.message?.content?.trim();
     if (!content) {
-      throw new Error('Empty analysis from Groq');
+      throw new Error('Empty analysis from Gemini');
     }
 
-    return content;
+    return content.trim();
   } catch (error) {
     return buildFallback(summary, topTransactions);
   }
