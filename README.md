@@ -1,18 +1,31 @@
 # WhatsApp AI Expense Tracker
 
-Bot WhatsApp lokal untuk pencatatan keuangan dengan parser hybrid (rule + Groq), SQLite, multi dompet, budget tracking, analytics, dan scheduled report.
+Bot WhatsApp lokal untuk pencatatan keuangan dengan AI-first conversation (Gemini), SQLite, multi dompet, budget tracking, analytics, dan scheduled report.
+
+## Gaya Interaksi
+
+Bot tidak lagi bergantung pada command kaku. Kamu bisa pakai bahasa natural.
+
+Contoh:
+- `halo`
+- `tambah dompet baru dengan nama bca`
+- `tambahkan dompet baru bri`
+- `baru makan siang 12k pake bri`
+- `tolong tampilkan transaksi minggu ini`
+- `hapus dompet bri`
+
+Bot akan menginterpretasi intent user via AI dan tetap fokus pada tujuan utama: tracking pemasukan dan pengeluaran.
 
 ## Fitur
 
-- Input transaksi natural language (bot juga menerima instruksi bebas), termasuk typo umum: `makan 25rb`, `maksn25k`, `gaji 10jt`
+- Input transaksi natural language, termasuk typo umum
 - Multi-user whitelist (`ALLOWED_USERS`)
-- Multi dompet per user (termasuk hapus dompet)
-- Budget tracking bulanan per kategori (`budget`)
+- Multi dompet per user (termasuk hapus dompet + hapus transaksi terkait)
+- Budget tracking bulanan per kategori
 - Analytics bulanan (`analytics`) dan insight AI (`analisa`)
-- Scheduled report (`jadwal harian`, `jadwal bulanan`)
-- Edit/hapus transaksi (`edit`, `hapus`)
-- Daftar transaksi (`transaksi list`)
-- Rule kategori custom (`kategori rule`)
+- Scheduled report
+- Edit/hapus transaksi
+- Daftar transaksi
 - Health endpoint: `GET /health`
 
 ## Setup
@@ -24,7 +37,6 @@ cp .env.example .env
 ```
 
 2. Isi `.env` minimal:
-
 - `GEMINI_API_KEY`
 - `ALLOWED_USERS` (pisahkan dengan koma)
 
@@ -41,19 +53,6 @@ ALLOWED_USERS=6281262142952,133646564499629
 npm install
 npm run dev
 ```
-
-## Command cepat
-
-- `update` -> kirim update hari ini lalu follow-up (`minggu ini` / `bulan ini` / `selesai`)
-- `bantuan`
-- `hari ini`, `minggu ini`, `bulan ini`
-- `list transaksi`, `transaksi hari ini`, `transaksi minggu ini`, `transaksi bulan ini`
-- `dompet tambah <nama>`, `dompet list`, `dompet pakai <nama>`, `dompet hapus <nama>`
-- `budget <kategori> <nominal>`, `budget list`
-- `analisa`, `analytics`
-- `edit <id> <nominal>`, `hapus <id>`
-
-Catatan: saat `dompet` dihapus, semua transaksi yang terhubung dengan dompet itu ikut dihapus.
 
 ## Test
 
